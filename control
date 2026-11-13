@@ -1,0 +1,9 @@
+Package: com.piggyhand.fish.ios
+Name: 闲鱼小猪手
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 闲鱼 iOS 端任务自动化引擎。借用宿主 MTOP 协议栈直调接口，完成每日签到 / 任务链 / 擦亮 / 小店福利 / 夺宝等操作。
+Maintainer: piggyhand
+Author: piggyhand
+Section: Tweaks
+Depends: firmware (>= 13.0)
