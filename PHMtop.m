@@ -10,6 +10,12 @@
 + (nullable NSDictionary *)extractJSON:(id)resp;
 @end
 
+/// 运行时构造 MtopExtRequest 的最小协议形状。
+/// 宿主头文件不可得，用协议把选择器告诉编译器，避免 no known instance method 报错。
+@protocol PHMtopReqInit <NSObject>
+- (id)initWithApiName:(NSString *)apiName apiVersion:(NSString *)apiVersion;
+@end
+
 /// 每次请求的接收凭据：同时挂 delegate 与 succeedBlock，谁先回来用谁（once 去重）
 @interface PHMtopToken : NSObject
 @property (nonatomic, copy) PHMtopCompletion completion;
@@ -32,7 +38,6 @@
     if (resp) {
         json = [PHMtop extractJSON:resp];
         if (!json) {
-            // 响应体不是 JSON，把原始 body 塞进去便于诊断
             id body = [PHRuntime invoke:resp sel:@"body"];
             if (body) json = @{@"_raw": [body description] ?: @""};
         }
@@ -43,7 +48,6 @@
                 if (d.length) e = d;
             }
         }
-        // isSucceed == NO 但没有 error 对象时也标记
         SEL isOk = NSSelectorFromString(@"isSucceed");
         if ([resp respondsToSelector:isOk]) {
             BOOL ok = ((BOOL (*)(id, SEL))[resp methodForSelector:isOk])(resp, isOk);
@@ -55,7 +59,6 @@
     if (cb) cb(json, e);
 }
 
-// 协议方法（MtopExtRequestDelegate）
 - (void)started:(id)request { }
 
 - (void)succeed:(id)request response:(id)response {
@@ -114,7 +117,6 @@
         PHLOG(@"[mtop] MtopService.getInstance 返回 nil");
         return NO;
     }
-    // 形状校验：必须能 async_call:delegate:
     if (![svc respondsToSelector:NSSelectorFromString(@"async_call:delegate:")]) {
         PHLOG(@"[mtop] MtopService 实例缺少 async_call:delegate:，接口不匹配");
         return NO;
@@ -171,7 +173,8 @@
 
     id req = nil;
     @try {
-        req = [[reqCls alloc] initWithApiName:api apiVersion:version];
+        id allocated = [reqCls alloc];
+        req = [(id<PHMtopReqInit>)allocated initWithApiName:api apiVersion:version];
     } @catch (NSException *e) {
         if (completion) completion(nil, [NSString stringWithFormat:@"构造请求异常: %@", e.reason]);
         return;
@@ -181,7 +184,6 @@
         return;
     }
 
-    // 业务参数
     for (NSString *k in params) {
         id v = params[k];
         if (!v || v == [NSNull null]) continue;
@@ -190,7 +192,6 @@
         } @catch (__unused NSException *e) {}
     }
 
-    // 请求属性：开 WUA、需要 ecode、需要登录态、超时、回调不回主线程
     @try {
         SEL s = NSSelectorFromString(@"setIsEnableWUA:");
         if ([req respondsToSelector:s]) {
@@ -226,7 +227,6 @@
     }
     @synchronized (_lock) { _pending[rid] = token; }
 
-    // 兜底：succeedBlock / failedBlock（部分 MTOP 版本在 delegate 为空时才走 block）
     @try {
         SEL sb = NSSelectorFromString(@"setSucceedBlock:");
         if ([req respondsToSelector:sb]) {
@@ -240,9 +240,8 @@
         }
     } @catch (__unused NSException *e) {}
 
-    PHLOGV(@"[mtop] → %@ v%@ params=%@", api, version, params);
+    PHLOGV(@"[mtop] -> %@ v%@ params=%@", api, version, params);
 
-    // 发送：统一回主线程调用，规避 SDK 内部对线程的假设
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
             IMP imp = [self->_service methodForSelector:NSSelectorFromString(@"async_call:delegate:")];
@@ -256,7 +255,6 @@
         } @catch (NSException *e) {
             [token fire:nil err:[NSString stringWithFormat:@"发送异常: %@", e.reason]];
         }
-        // 超时兜底
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(28 * NSEC_PER_SEC)), dispatch_get_global_queue(0, 0), ^{
             [token fire:nil err:@"timeout"];
             @synchronized (self->_lock) { [self->_pending removeObjectForKey:rid]; }
@@ -271,7 +269,6 @@
                    timeout:(NSTimeInterval)timeout {
 
     if ([NSThread isMainThread]) {
-        // 主线程等待会冻结 UI 且可能与 SDK 回调互锁，直接拒绝
         if (errMsg) *errMsg = @"callSync 不能在主线程调用";
         return nil;
     }
