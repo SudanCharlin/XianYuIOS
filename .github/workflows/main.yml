@@ -1,18 +1,33 @@
 name: Build XianYuPiggyHand dylib
 
+# 说明：GitHub 已陆续退役 macos-14 镜像，直接写 macos-14 会在「调度阶段」被拒，
+# 报错形如：
+#   The configuration 'macos-14-arm64-us-default' is not supported
+# 该错误发生在 runner 分配时，与代码无关。这里改用 macos-latest，
+# 并保留一个 macos-15 的兜底 job。
+
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner 标签（默认 macos-latest）'
+        required: false
+        default: 'macos-latest'
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: ${{ github.event.inputs.runner || 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: 选择 Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app
+      - name: 环境自检
+        run: |
+          sw_vers
+          xcode-select -p || true
+          xcodebuild -version || true
+          xcrun --sdk iphoneos --show-sdk-path
 
       - name: 编译 dylib
         run: |
@@ -22,10 +37,42 @@ jobs:
       - name: 校验产物
         run: |
           file XianYuPiggyHand.dylib
-          otool -h XianYuPiggyHand.dylib
+          otool -hv XianYuPiggyHand.dylib
+          otool -L XianYuPiggyHand.dylib
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: XianYuPiggyHand-dylib
           path: XianYuPiggyHand.dylib
+          if-no-files-found: error
+
+  # 第一个 job 调度失败时（runner 镜像不可用）用备选镜像重试
+  build-fallback:
+    needs: build
+    if: failure()
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境自检
+        run: |
+          sw_vers
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: 编译 dylib
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: 校验产物
+        run: |
+          file XianYuPiggyHand.dylib
+          otool -hv XianYuPiggyHand.dylib
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: XianYuPiggyHand-dylib-fallback
+          path: XianYuPiggyHand.dylib
+          if-no-files-found: error
