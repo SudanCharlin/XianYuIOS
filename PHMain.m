@@ -5,10 +5,10 @@
 //  注入形态：自签环境下的独立 dylib（不依赖 substrate / ellekit）。
 //  启动路径：
 //    __attribute__((constructor))
-//      → 等 UIApplicationDidFinishLaunching / 前台激活
-//      → swizzle MtopExtRequest 参数入口（抄写 fishAdCode/gps/asac）
-//      → 挂悬浮球
-//      → 按间隔判断是否自动跑批
+//      -> 等 UIApplicationDidFinishLaunching / 前台激活
+//      -> swizzle MtopExtRequest 参数入口（抄写 fishAdCode/gps/asac）
+//      -> 挂悬浮球
+//      -> 按间隔判断是否自动跑批
 //
 
 #import <Foundation/Foundation.h>
@@ -86,7 +86,7 @@ static void PHMaybeAutoRun(NSString *reason) {
 
     PHLOG(@"[auto] 触发自动跑批（%@）", reason);
     [[PHEngine shared] runWithCompletion:^(NSString *report, NSInteger ok, NSInteger fail) {
-        [[PHHUD shared] toast:[NSString stringWithFormat:@"自动跑批完成 · 成功 %ld · 失败 %ld", (long)ok, (long)fail)];
+        [[PHHUD shared] toast:[NSString stringWithFormat:@"自动跑批完成 · 成功 %ld · 失败 %ld", (long)ok, (long)fail]];
     }];
 }
 
@@ -102,13 +102,11 @@ static void PHBoot(void) {
 
     PHInstallHooks();
 
-    // MTOP 框架需要等宿主初始化；先探测，失败则轮询
     __block NSInteger tries = 0;
     __block void (^probe)(void) = nil;
     probe = ^{
         if ([[PHMtop shared] prepare]) {
             [[PHHUD shared] attach];
-            // 再等几秒让首页登录态出来，避免首批请求 401
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 PHMaybeAutoRun(@"启动");
             });
@@ -131,7 +129,6 @@ static void PHBoot(void) {
                                                   usingBlock:^(__unused NSNotification *n) {
         PHInstallHooks();
         [[PHHUD shared] refresh];
-        // 回前台时检查一次间隔（同一次启动内只跑一次由 running 标记兜底）
         static NSTimeInterval lastCheck = 0;
         NSTimeInterval now = [NSDate date].timeIntervalSince1970;
         if (now - lastCheck > 300) {
@@ -146,7 +143,6 @@ static void PHBoot(void) {
 __attribute__((constructor))
 static void PHConstructor(void) {
     @autoreleasepool {
-        // 只在闲鱼进程内工作
         NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
         if (![bid isEqualToString:@"com.taobao.fleamarket"]) {
             return;
@@ -163,7 +159,6 @@ static void PHConstructor(void) {
                         PHBoot();
                     });
                 }];
-                // 兜底：某些自签环境不派发 DidFinishLaunching
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     PHBoot();
                 });
