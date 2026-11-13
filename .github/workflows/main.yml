@@ -1,0 +1,31 @@
+name: Build XianYuPiggyHand dylib
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 选择 Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: 编译 dylib
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: 校验产物
+        run: |
+          file XianYuPiggyHand.dylib
+          otool -h XianYuPiggyHand.dylib
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: XianYuPiggyHand-dylib
+          path: XianYuPiggyHand.dylib
