@@ -32,7 +32,6 @@ static NSDateFormatter *gFmt = nil;
         [gLines addObject:line];
         if (gLines.count > 400) [gLines removeObjectsInRange:NSMakeRange(0, gLines.count - 400)];
     }
-    // 落盘：追加写，超过 512KB 截断重建
     NSString *p = [self journalPath];
     NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:p];
     if (!fh) {
@@ -182,7 +181,6 @@ static NSDateFormatter *gFmt = nil;
 
 - (instancetype)init {
     if ((self = [super init])) {
-        // 冷启动恢复
         NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
         NSString *p = [docs stringByAppendingPathComponent:@"ph_loc.json"];
         NSData *raw = [NSData dataWithContentsOfFile:p];
@@ -212,7 +210,6 @@ static NSDateFormatter *gFmt = nil;
     if (![params isKindOfClass:[NSDictionary class]] || params.count == 0) return;
     __block BOOL changed = NO;
 
-    // MTOP 的 bizParameters 值可能是 NSString 也可能是 NSNumber，也可能是 JSON 字符串
     void (^scan)(NSDictionary *) = ^(NSDictionary *d) {
         NSString *fa = [self clean:d[@"fishAdCode"]];
         NSString *gp = [self clean:d[@"gps"]];
@@ -224,7 +221,6 @@ static NSDateFormatter *gFmt = nil;
 
     scan(params);
 
-    // 某些请求把业务参数整体塞在 data / param 字符串里，做一次浅解析
     for (NSString *k in @[@"data", @"param", @"params"]) {
         id v = params[k];
         if ([v isKindOfClass:[NSString class]] && [v length] > 8) {
@@ -279,7 +275,8 @@ static NSDateFormatter *gFmt = nil;
 + (BOOL)cls:(NSString *)name respondsToSel:(NSString *)sel {
     Class c = NSClassFromString(name);
     if (!c) return NO;
-    return [c respondsToSelector:NSSelectorFromString(sel)] || [[c instance] respondsToSelector:NSSelectorFromString(sel)];
+    SEL s = NSSelectorFromString(sel);
+    return class_getClassMethod(c, s) != NULL || class_getInstanceMethod(c, s) != NULL;
 }
 
 + (BOOL)obj:(id)obj respondsToSel:(NSString *)sel {
