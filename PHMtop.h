@@ -2,43 +2,51 @@
 //  PHMtop.h
 //  MTOP 直调客户端
 //
-//  原理（与安卓模块同构）：不自己实现签名/登录态，直接借用闲鱼自身的
-//  MTOP 协议栈发送请求 —— 登录态(sid/cookie)、WUA、设备指纹、ttid
-//  全部由宿主 SDK 自动附加。
+//  多引擎设计：不同宿主版本对「谁来补鉴权」的处理不一样，
+//  单一路径踩空就是全盘失败，所以这里做优先降级。
 //
 //  iOS 侧调用面（已从 Runner 7.29.10 二进制实证）：
-//    MtopService      + getInstance                     -> MtopService*
-//    MtopService      - async_call:delegate:            v32@0:8@16@24
-//    MtopService      - sync_call:                      @24@0:8@16
-//    MtopExtRequest   - initWithApiName:apiVersion:     @32@0:8@16@24
-//    MtopExtRequest   - addBizParameter:forKey:         @32@0:8@16@24
-//    MtopExtRequest   - setIsEnableWUA:                 v20@0:8B16
-//    MtopExtResponse  - json / body / isSucceed
+//    引擎 A  MtopApiRequest     - initWithApiName:version: / addParameter:forKey: / sync / response
+//    引擎 B  MtopService        + getInstance / - async_call:delegate:
+//            MtopExtRequest     - initWithApiName:apiVersion: / addBizParameter:forKey:
 //
 
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 构建标识，启动时打进日志，用来确认设备上跑的是哪个版本
+#define PH_BUILD_ID "1.1.0"
+
 typedef void (^PHMtopCompletion)(NSDictionary *_Nullable json, NSString *_Nullable errMsg);
+
+typedef NS_ENUM(NSInteger, PHMtopEngine) {
+    PHMtopEngineAuto = 0,       // 优先 MtopApiRequest，失败降级 MtopExtRequest
+    PHMtopEngineApiRequest = 1, // 只用阿里便捷封装 MtopApiRequest
+    PHMtopEngineExtRequest = 2, // 只用 MtopExtRequest + MtopService
+};
 
 @interface PHMtop : NSObject
 
 + (instancetype)shared;
 
-/// 宿主 MTOP 协议栈是否已就绪（App 启动后需等待其初始化）
+/// 宿主 MTOP 协议栈是否已就绪
 @property (nonatomic, readonly) BOOL ready;
+
+/// 自动模式下实际命中的引擎
+@property (nonatomic, readonly) PHMtopEngine activeEngine;
+
+/// 选择引擎（默认自动）
+@property (nonatomic, assign) PHMtopEngine engine;
 
 /// 探测并缓存 MtopService 单例
 - (BOOL)prepare;
 
-/// 异步调用。回调在内部队列执行，json 为响应体根字典。
 - (void)call:(NSString *)api
      version:(NSString *)version
       params:(nullable NSDictionary *)params
   completion:(PHMtopCompletion)completion;
 
-/// 同步调用：必须在【非主线程】调用，内部等待回调。
 - (nullable NSDictionary *)callSync:(NSString *)api
                             version:(NSString *)version
                              params:(nullable NSDictionary *)params
@@ -47,6 +55,12 @@ typedef void (^PHMtopCompletion)(NSDictionary *_Nullable json, NSString *_Nullab
 
 /// 从响应里取 ret[0]（如 "SUCCESS::调用成功"）
 + (nullable NSString *)ret0:(nullable NSDictionary *)json;
+
+/// 提取 code / msg / ret，用于诊断
++ (NSString *)describe:(nullable NSDictionary *)json;
+
+/// 自检：对同一接口跑一遍各引擎，返回可读报告
+- (void)diagnose:(void (^)(NSString *report))completion;
 
 @end
 
